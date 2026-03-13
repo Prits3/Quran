@@ -1,0 +1,8 @@
+{
+  "name": "quran-app",
+  "version": "1.0.0",
+  "scripts": {
+    "setup": "node scripts/setup.js",
+    "start-backend": "node scripts/start-backend.js"
+  }
+}

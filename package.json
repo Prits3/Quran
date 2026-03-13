@@ -1,8 +1,12 @@
 {
-  "name": "quran-app",
+  "name": "quran-verse-finder",
   "version": "1.0.0",
   "scripts": {
+    "dev": "node scripts/setup.js && concurrently \"npm run start-backend\" \"cd frontend && npm run dev\"",
     "setup": "node scripts/setup.js",
     "start-backend": "node scripts/start-backend.js"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
   }
 }

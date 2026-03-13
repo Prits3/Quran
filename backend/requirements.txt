@@ -1,7 +1,7 @@
 fastapi
-uvicorn
+uvicorn[standard]
 sentence-transformers
-pandas
 numpy
-scikit-learn
-torch
+pandas
+python-multipart
+requests

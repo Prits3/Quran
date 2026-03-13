@@ -1,126 +1,195 @@
-import { useState } from 'react'
+import { useState } from "react";
 
-function App() {
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState([])
-  const [error, setError] = useState('')
+const API = import.meta.env.VITE_API_BASE || "";
 
-  const handleSearch = async () => {
-    setError('')
+export default function App() {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleSearch() {
+    setLoading(true);
+    setError("");
+    setResults([]);
+
     try {
-      const response = await fetch('/recommend', {
-        method: 'POST',
+      const response = await fetch(`${API}/recommend`, {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json'
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify({ text: query, k: 5, candidates: 40 })
-      })
+        body: JSON.stringify({
+          text: query,
+          k: 5,
+          candidates: 40,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Search failed')
+        throw new Error(data.detail || "Search failed");
       }
 
-      const data = await response.json()
-      setResults(data.results)
+      if (!data.results || !Array.isArray(data.results) || data.results.length === 0) {
+        throw new Error("No verses returned");
+      }
+
+      setResults(data.results);
     } catch (err) {
-      setError(err.message)
+      setError(err?.message || "Something went wrong");
+    } finally {
+      setLoading(false);
     }
   }
 
-  const wordCount = query.trim().split(/\s+/).filter(word => word.length > 0).length
-  const canSearch = wordCount >= 10
-
   return (
-    <div style={{
-      maxWidth: '800px',
-      margin: '0 auto',
-      padding: '20px',
-      fontFamily: 'Arial, sans-serif',
-      backgroundColor: '#f8f9fa',
-      minHeight: '100vh'
-    }}>
-      <h1 style={{ color: '#2e7d32', textAlign: 'center' }}>Quran Verse Finder</h1>
-      <p style={{ textAlign: 'center', color: '#555' }}>Find relevant Quran verses using AI-powered semantic search</p>
+    <div
+      style={{
+        maxWidth: "1100px",
+        margin: "0 auto",
+        padding: "48px 24px",
+        fontFamily: "Inter, Arial, sans-serif",
+        backgroundColor: "#f5f5f5",
+        minHeight: "100vh",
+      }}
+    >
+      <h1
+        style={{
+          textAlign: "center",
+          color: "#2e7d32",
+          fontSize: "64px",
+          fontWeight: 700,
+          marginBottom: "16px",
+        }}
+      >
+        Quran Verse Finder
+      </h1>
 
-      <div style={{ marginBottom: '10px', fontSize: '14px', color: wordCount < 10 ? '#d32f2f' : '#2e7d32' }}>
-        Word count: {wordCount} (minimum 10 words required)
-      </div>
+      <p
+        style={{
+          textAlign: "center",
+          fontSize: "24px",
+          color: "#555",
+          marginBottom: "36px",
+        }}
+      >
+        Find relevant Quran verses using AI-powered semantic search
+      </p>
 
       <textarea
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Enter a detailed description (at least 10 words) of what you're looking for in the Quran. For example: 'I am struggling with patience during difficult times and want to find verses that help me trust in Allah's plan and remain steadfast in my faith.'"
+        placeholder="Write anything. This app will always return Quran verses in Arabic and English."
         style={{
-          width: '100%',
-          padding: '12px',
-          marginBottom: '10px',
-          border: `2px solid ${wordCount < 10 ? '#d32f2f' : '#2e7d32'}`,
-          borderRadius: '5px',
-          fontSize: '16px',
-          minHeight: '100px',
-          resize: 'vertical'
+          width: "100%",
+          minHeight: "180px",
+          padding: "18px",
+          fontSize: "18px",
+          border: "3px solid #2e7d32",
+          borderRadius: "10px",
+          resize: "vertical",
+          boxSizing: "border-box",
+          outline: "none",
+          background: "#fff",
         }}
       />
 
       <button
         onClick={handleSearch}
-        disabled={!canSearch}
+        disabled={loading}
         style={{
-          padding: '12px 24px',
-          backgroundColor: canSearch ? '#2e7d32' : '#ccc',
-          color: 'white',
-          border: 'none',
-          borderRadius: '5px',
-          cursor: canSearch ? 'pointer' : 'not-allowed',
-          fontSize: '16px',
-          width: '100%'
+          width: "100%",
+          marginTop: "18px",
+          padding: "18px 24px",
+          fontSize: "22px",
+          fontWeight: 600,
+          border: "none",
+          borderRadius: "10px",
+          backgroundColor: loading ? "#7cb342" : "#2e7d32",
+          color: "#fff",
+          cursor: loading ? "not-allowed" : "pointer",
         }}
       >
-        Suggest Verses
+        {loading ? "Searching..." : "Suggest Verses"}
       </button>
 
       {error && (
-        <div style={{
-          color: '#d32f2f',
-          marginTop: '10px',
-          padding: '10px',
-          border: '1px solid #d32f2f',
-          borderRadius: '5px',
-          backgroundColor: '#ffebee'
-        }}>
+        <div
+          style={{
+            color: "#d32f2f",
+            marginTop: "14px",
+            padding: "14px 16px",
+            border: "1px solid #d32f2f",
+            borderRadius: "10px",
+            backgroundColor: "#ffebee",
+            fontSize: "18px",
+          }}
+        >
           {error}
         </div>
       )}
 
-      <div style={{ marginTop: '20px' }}>
+      <div style={{ marginTop: "28px" }}>
         {results.map((result, index) => (
-          <div key={index} style={{
-            border: '1px solid #ddd',
-            padding: '15px',
-            marginBottom: '10px',
-            borderRadius: '8px',
-            backgroundColor: 'white',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-          }}>
-            <strong style={{ color: '#2e7d32' }}>{result.verse_key}</strong><br />
-            <em style={{
-              fontFamily: 'serif',
-              fontSize: '18px',
-              direction: 'rtl',
-              display: 'block',
-              margin: '10px 0',
-              color: '#333'
-            }}>{result.arabic}</em><br />
-            <span style={{ color: '#555' }}>{result.english}</span><br />
-            <small style={{ color: '#777' }}>
-              Score: {result.score} | {result.why}
-            </small>
+          <div
+            key={`${result.verse_key}-${index}`}
+            style={{
+              border: "1px solid #ddd",
+              padding: "20px",
+              marginBottom: "16px",
+              borderRadius: "14px",
+              backgroundColor: "#fff",
+              boxShadow: "0 4px 14px rgba(0,0,0,0.08)",
+            }}
+          >
+            <div
+              style={{
+                color: "#2e7d32",
+                fontWeight: 700,
+                fontSize: "20px",
+                marginBottom: "12px",
+              }}
+            >
+              {result.verse_key}
+            </div>
+
+            <div
+              style={{
+                fontFamily: "serif",
+                fontSize: "30px",
+                direction: "rtl",
+                lineHeight: 1.9,
+                color: "#222",
+                marginBottom: "16px",
+              }}
+            >
+              {result.arabic}
+            </div>
+
+            <div
+              style={{
+                color: "#444",
+                fontSize: "18px",
+                lineHeight: 1.7,
+                marginBottom: "10px",
+              }}
+            >
+              {result.english}
+            </div>
+
+            <div
+              style={{
+                color: "#777",
+                fontSize: "14px",
+              }}
+            >
+              Score: {result.score} · {result.why}
+            </div>
           </div>
         ))}
       </div>
     </div>
-  )
+  );
 }
-
-export default App

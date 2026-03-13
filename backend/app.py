@@ -1,113 +1,118 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import numpy as np
 import json
-from sentence_transformers import SentenceTransformer, CrossEncoder
-import torch
+import os
+import hashlib
+from sentence_transformers import SentenceTransformer
+
+BASE_DIR = os.path.dirname(__file__)
+DATA_DIR = os.path.join(BASE_DIR, "data")
+EMBEDDINGS_PATH = os.path.join(DATA_DIR, "verses.npy")
+META_PATH = os.path.join(DATA_DIR, "meta.json")
+MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
 app = FastAPI(title="Quran Verse Finder API")
 
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify your frontend URL
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-EMBEDDINGS_PATH = "backend/data/verses.npy"
-META_PATH = "backend/data/meta.json"
-MODEL_NAME = "all-MiniLM-L6-v2"
-RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+if not os.path.exists(EMBEDDINGS_PATH):
+    raise RuntimeError("Missing backend/data/verses.npy. Run prepare_quran.py first.")
 
-embeddings = np.load(EMBEDDINGS_PATH)
+if not os.path.exists(META_PATH):
+    raise RuntimeError("Missing backend/data/meta.json. Run prepare_quran.py first.")
+
+embeddings = np.load(EMBEDDINGS_PATH).astype(np.float32)
 
 with open(META_PATH, "r", encoding="utf-8") as f:
     meta = json.load(f)
 
+def normalize_rows(x: np.ndarray) -> np.ndarray:
+    norms = np.linalg.norm(x, axis=1, keepdims=True) + 1e-12
+    return x / norms
+
+embeddings = normalize_rows(embeddings)
 model = SentenceTransformer(MODEL_NAME)
 
-# Try to load reranker, fallback to None
-try:
-    reranker = CrossEncoder(RERANKER_MODEL)
-    reranker_available = True
-except Exception:
-    reranker = None
-    reranker_available = False
-
-
 class RecommendRequest(BaseModel):
-    text: str
-    k: int = 3
+    text: str = ""
+    k: int = 5
     candidates: int = 40
-
 
 @app.get("/")
 def root():
     return {"message": "Quran Verse Finder API"}
 
-
 @app.get("/health")
 def health():
-    return {
-        "ok": True,
-        "verses": len(meta),
-        "reranker": reranker_available
-    }
+    return {"ok": True, "verses": len(meta)}
 
+def clean_text(value: str) -> str:
+    return str(value or "").strip()
+
+def fallback_index(text: str, total: int) -> int:
+    if total == 0:
+        return 0
+    base = text if text else "quran-guidance"
+    digest = hashlib.sha256(base.encode("utf-8")).hexdigest()
+    return int(digest, 16) % total
 
 @app.post("/recommend")
 def recommend(req: RecommendRequest):
-    text = req.text.strip()
+    text = clean_text(req.text)
+    k = max(1, min(int(req.k or 5), 10))
+    candidates = max(k, min(int(req.candidates or 40), len(meta)))
 
-    if len(text.split()) < 10:
-        raise HTTPException(
-            status_code=400,
-            detail="Please enter at least 10 words to provide enough context for meaningful recommendations."
-        )
+    if len(meta) == 0:
+        return {"query": text, "results": []}
 
-    k = max(1, min(req.k, 10))
-    candidates = max(req.candidates, k)
+    query_text = text if text else "guidance hope mercy patience peace forgiveness"
 
-    # Get embeddings similarity
-    q_vec = model.encode([text])
-    scores = np.dot(embeddings, q_vec.T).flatten()
+    try:
+        q_vec = model.encode([query_text], normalize_embeddings=True).astype(np.float32)[0]
+        scores = embeddings @ q_vec
 
-    # Get top candidates
-    top_indices = np.argsort(scores)[::-1][:candidates]
-    candidates_data = [(i, scores[i]) for i in top_indices]
+        n = min(candidates, len(scores))
+        if n <= 0:
+            raise ValueError("No candidates available")
 
-    if reranker_available and len(candidates_data) > k:
-        # Rerank with cross-encoder
-        candidate_texts = [meta[i]["english"] for i, _ in candidates_data]
-        pairs = [[text, candidate] for candidate in candidate_texts]
-        rerank_scores = reranker.predict(pairs)
+        top_idx = np.argpartition(-scores, n - 1)[:n]
+        top_idx = top_idx[np.argsort(-scores[top_idx])]
+        selected = top_idx[:k]
 
-        # Combine scores
-        combined = [(i, score + rerank_scores[j]) for j, (i, score) in enumerate(candidates_data)]
-        combined.sort(key=lambda x: x[1], reverse=True)
-        top_indices = [i for i, _ in combined[:k]]
-    else:
-        top_indices = [i for i, _ in candidates_data[:k]]
+        results = []
+        for i in selected:
+            verse = meta[int(i)]
+            results.append({
+                "verse_key": verse.get("verse_key", ""),
+                "arabic": verse.get("arabic", ""),
+                "english": verse.get("english", ""),
+                "score": round(float(scores[int(i)]), 4),
+                "why": "semantic match to your text"
+            })
 
-    results = []
-    for i in top_indices:
-        verse = meta[i]
-        score = float(scores[i])
+        if results:
+            return {"query": text, "results": results}
 
-        # Generate simple explanation
-        why = f"Matches query with semantic similarity score {score:.3f}"
-        if reranker_available:
-            why += " (reranked for relevance)"
+    except Exception:
+        pass
 
-        results.append({
-            "verse_key": verse["verse_key"],
-            "arabic": verse["arabic"],
-            "english": verse["english"],
-            "score": round(score, 4),
-            "why": why
-        })
-
-    return {"query": text, "results": results}
+    i = fallback_index(text, len(meta))
+    verse = meta[i]
+    return {
+        "query": text,
+        "results": [{
+            "verse_key": verse.get("verse_key", ""),
+            "arabic": verse.get("arabic", ""),
+            "english": verse.get("english", ""),
+            "score": 0.0,
+            "why": "fallback verse"
+        }]
+    }
